@@ -94,7 +94,7 @@
   button.small:hover:not(:disabled) { border-color: var(--accent); }
   button.small:disabled { opacity: .4; cursor: default; }
   .empty { color: var(--muted); font-size: 13px; margin: 0; }
-  .now { font-size: 13px; font-weight: 600; color: var(--active); }
+  .now { margin-left: 10px; font-size: 13px; font-weight: 600; color: var(--active); text-transform: none; letter-spacing: 0; }
   .now .star { color: var(--accent); }
   .now .mod, .now.none { color: var(--muted); font-weight: 400; }
 </style>
@@ -117,10 +117,7 @@
     <span class="cycle-count" id="cycleCount"></span>
   </div>
 
-  <div class="list-head" style="margin-top:0">
-    <p class="code-label">Strudel code being played</p>
-    <span class="now" id="nowPlaying"></span>
-  </div>
+  <p class="code-label">Strudel code being played <span class="now" id="nowPlaying"></span></p>
   <pre id="code"></pre>
 
   <div class="list-head">
