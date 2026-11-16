@@ -94,6 +94,9 @@
   button.small:hover:not(:disabled) { border-color: var(--accent); }
   button.small:disabled { opacity: .4; cursor: default; }
   .empty { color: var(--muted); font-size: 13px; margin: 0; }
+  .now { font-size: 13px; font-weight: 600; color: var(--active); }
+  .now .star { color: var(--accent); }
+  .now .mod, .now.none { color: var(--muted); font-weight: 400; }
 </style>
 </head>
 <body>
@@ -114,7 +117,10 @@
     <span class="cycle-count" id="cycleCount"></span>
   </div>
 
-  <p class="code-label">Strudel code being played</p>
+  <div class="list-head" style="margin-top:0">
+    <p class="code-label">Strudel code being played</p>
+    <span class="now" id="nowPlaying"></span>
+  </div>
   <pre id="code"></pre>
 
   <div class="list-head">
@@ -234,6 +240,30 @@ function render() {
     toggle.textContent = n.on ? 'ON' : 'OFF';
   }));
   document.getElementById('code').textContent = patternCode();
+  renderNowPlaying();
+}
+
+// ---- "Now playing" label: which example or local pattern the grid came from ----
+let loaded = null;   // { kind: 'example' | 'local', item } or null
+
+function renderNowPlaying() {
+  const el = document.getElementById('nowPlaying');
+  el.classList.toggle('none', !loaded);
+  if (!loaded) { el.textContent = 'unsaved pattern'; return; }
+  const modified = loaded.item.steps.join(' ') !== patternString();
+  el.innerHTML =
+    (loaded.kind === 'example' ? '<span class="star">★</span> ' : '') +
+    loaded.item.name +
+    (modified ? ' <span class="mod">(modified)</span>' : '');
+}
+
+function setLoaded(kind, item) {
+  loaded = item ? { kind, item } : null;
+  loadedLocalId = kind === 'local' && item ? item.id : null;
+  document.getElementById('saveOver').disabled = loadedLocalId === null;
+  renderLocalList();
+  exampleButtons.forEach(({ ex, btn }) => btn.classList.toggle('loaded', loaded?.item === ex));
+  renderNowPlaying();
 }
 
 function update() {
@@ -282,18 +312,12 @@ function persistLocal() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(local)); } catch (e) { /* ignore */ }
 }
 
-function setLoadedLocal(id) {
-  loadedLocalId = id;
-  document.getElementById('saveOver').disabled = id === null;
-  renderLocalList();
-}
-
 function saveNew() {
   const item = { id: local.next, name: `Local ${local.next}`, steps: stepEntries() };
   local.next += 1;
   local.items.push(item);
   persistLocal();
-  setLoadedLocal(item.id);
+  setLoaded('local', item);
 }
 
 function saveOver() {
@@ -301,13 +325,13 @@ function saveOver() {
   if (!item) return;
   item.steps = stepEntries();
   persistLocal();
-  renderLocalList();
+  setLoaded('local', item);
 }
 
 function deleteLocal(id) {
   local.items = local.items.filter(it => it.id !== id);
   persistLocal();
-  if (loadedLocalId === id) setLoadedLocal(null); else renderLocalList();
+  if (loadedLocalId === id) setLoaded(null, null); else renderLocalList();
 }
 
 document.getElementById('saveNew').addEventListener('click', saveNew);
@@ -328,7 +352,7 @@ function renderLocalList() {
   document.getElementById('localEmpty').style.display = local.items.length ? 'none' : '';
   for (const item of local.items) {
     const li = document.createElement('li');
-    const btn = makeEntryButton(item, () => { loadSteps(item.steps); setLoadedLocal(item.id); });
+    const btn = makeEntryButton(item, () => { loadSteps(item.steps); setLoaded('local', item); });
     btn.classList.toggle('loaded', item.id === loadedLocalId);
     const del = document.createElement('button');
     del.className = 'delete';
@@ -341,15 +365,17 @@ function renderLocalList() {
 }
 
 const exampleList = document.getElementById('examples');
-for (const ex of EXAMPLES) {
+const exampleButtons = EXAMPLES.map(ex => {
   const li = document.createElement('li');
   // Loading a built-in example drops the link to any local pattern, so a later save goes to a new entry.
-  li.appendChild(makeEntryButton(ex, () => { loadSteps(ex.steps); setLoadedLocal(null); }));
+  const btn = makeEntryButton(ex, () => { loadSteps(ex.steps); setLoaded('example', ex); });
+  li.appendChild(btn);
   exampleList.appendChild(li);
-}
+  return { ex, btn };
+});
 
-renderLocalList();
 render();
+setLoaded('example', EXAMPLES[0]);   // the starting grid is the first example
 
 // ---- Strudel ----
 let playing = false;
