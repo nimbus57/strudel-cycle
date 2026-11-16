@@ -74,8 +74,26 @@
     padding: 8px 12px; font: inherit; cursor: pointer;
   }
   .example:hover { border-color: var(--line); }
+  .example.loaded { border-color: var(--active); }
   .example .name { min-width: 130px; font-weight: 600; }
   .example code { font: 13px ui-monospace, Consolas, monospace; color: var(--muted); }
+  .examples li { display: flex; gap: 6px; align-items: stretch; }
+  .examples li .example { flex: 1; }
+  .delete {
+    background: var(--panel); color: var(--muted); border: 1px solid transparent; border-radius: 8px;
+    padding: 0 12px; font: inherit; cursor: pointer;
+  }
+  .delete:hover { color: #ff7b7b; border-color: var(--line); }
+
+  .list-head { display: flex; align-items: baseline; justify-content: space-between; margin-top: 24px; }
+  .save-btns { display: flex; gap: 6px; }
+  button.small {
+    background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+  button.small:hover:not(:disabled) { border-color: var(--accent); }
+  button.small:disabled { opacity: .4; cursor: default; }
+  .empty { color: var(--muted); font-size: 13px; margin: 0; }
 </style>
 </head>
 <body>
@@ -98,6 +116,16 @@
 
   <p class="code-label">Strudel code being played</p>
   <pre id="code"></pre>
+
+  <div class="list-head">
+    <p class="code-label">Local (click to load)</p>
+    <span class="save-btns">
+      <button class="small" id="saveNew">Save as new</button>
+      <button class="small" id="saveOver" disabled title="Load a local pattern first">Overwrite</button>
+    </span>
+  </div>
+  <ul class="examples" id="local"></ul>
+  <p class="empty" id="localEmpty">Nothing saved yet. Set up a pattern and click "Save as new".</p>
 
   <p class="code-label" style="margin-top:24px">Examples (click to load)</p>
   <ul class="examples" id="examples"></ul>
@@ -177,13 +205,19 @@ const subSlotEls = steps.map((notes, i) => {
 
 // Only ON notes count. One note fills the whole step; several share it evenly in a
 // bracketed group. "~" is a rest in Strudel mini-notation.
+function stepEntry(notes) {
+  const parts = notes.filter(n => n.on).map(n => n.pitch);
+  if (parts.length === 0) return '~';
+  if (parts.length === 1) return parts[0];
+  return `[${parts.join(' ')}]`;
+}
+
+function stepEntries() {
+  return steps.map(stepEntry);
+}
+
 function patternString() {
-  return steps.map(notes => {
-    const parts = notes.filter(n => n.on).map(n => n.pitch);
-    if (parts.length === 0) return '~';
-    if (parts.length === 1) return parts[0];
-    return `[${parts.join(' ')}]`;
-  }).join(' ');
+  return stepEntries().join(' ');
 }
 
 function patternCode() {
@@ -222,8 +256,9 @@ const EXAMPLES = [
   { name: 'Minor turn',      steps: ['a3', 'c4', 'e4', '[a4 g4]'] },
 ];
 
-function loadExample(ex) {
-  ex.steps.forEach((entry, i) => {
+// Fills the grid from step entries (the same format EXAMPLES use).
+function loadSteps(entries) {
+  entries.forEach((entry, i) => {
     const pitches = entry.replace(/[\[\]]/g, '').split(' ').filter(p => p !== '' && entry !== '~');
     steps[i].forEach((n, j) => {
       n.on = j < pitches.length;
@@ -233,16 +268,87 @@ function loadExample(ex) {
   update();
 }
 
-const list = document.getElementById('examples');
-for (const ex of EXAMPLES) {
-  const li = document.createElement('li');
+// ---- Local patterns (saved in this browser's localStorage) ----
+const STORAGE_KEY = 'strudel-cycle.local';
+let local = { next: 1, items: [] };   // items: [{ id, name, steps }]
+let loadedLocalId = null;             // id of the local pattern currently loaded, for Overwrite
+
+try {
+  const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+  if (saved && Array.isArray(saved.items)) local = { next: saved.next || 1, items: saved.items };
+} catch (e) { /* storage blocked or corrupt: start empty */ }
+
+function persistLocal() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(local)); } catch (e) { /* ignore */ }
+}
+
+function setLoadedLocal(id) {
+  loadedLocalId = id;
+  document.getElementById('saveOver').disabled = id === null;
+  renderLocalList();
+}
+
+function saveNew() {
+  const item = { id: local.next, name: `Local ${local.next}`, steps: stepEntries() };
+  local.next += 1;
+  local.items.push(item);
+  persistLocal();
+  setLoadedLocal(item.id);
+}
+
+function saveOver() {
+  const item = local.items.find(it => it.id === loadedLocalId);
+  if (!item) return;
+  item.steps = stepEntries();
+  persistLocal();
+  renderLocalList();
+}
+
+function deleteLocal(id) {
+  local.items = local.items.filter(it => it.id !== id);
+  persistLocal();
+  if (loadedLocalId === id) setLoadedLocal(null); else renderLocalList();
+}
+
+document.getElementById('saveNew').addEventListener('click', saveNew);
+document.getElementById('saveOver').addEventListener('click', saveOver);
+
+// ---- List rendering (shared by both lists) ----
+function makeEntryButton(item, onLoad) {
   const btn = document.createElement('button');
   btn.className = 'example';
-  btn.innerHTML = `<span class="name">${ex.name}</span><code>${ex.steps.join(' ')}</code>`;
-  btn.addEventListener('click', () => loadExample(ex));
-  li.appendChild(btn);
-  list.appendChild(li);
+  btn.innerHTML = `<span class="name">${item.name}</span><code>${item.steps.join(' ')}</code>`;
+  btn.addEventListener('click', onLoad);
+  return btn;
 }
+
+function renderLocalList() {
+  const list = document.getElementById('local');
+  list.innerHTML = '';
+  document.getElementById('localEmpty').style.display = local.items.length ? 'none' : '';
+  for (const item of local.items) {
+    const li = document.createElement('li');
+    const btn = makeEntryButton(item, () => { loadSteps(item.steps); setLoadedLocal(item.id); });
+    btn.classList.toggle('loaded', item.id === loadedLocalId);
+    const del = document.createElement('button');
+    del.className = 'delete';
+    del.textContent = '✕';
+    del.title = `Delete ${item.name}`;
+    del.addEventListener('click', () => deleteLocal(item.id));
+    li.append(btn, del);
+    list.appendChild(li);
+  }
+}
+
+const exampleList = document.getElementById('examples');
+for (const ex of EXAMPLES) {
+  const li = document.createElement('li');
+  // Loading a built-in example drops the link to any local pattern, so a later save goes to a new entry.
+  li.appendChild(makeEntryButton(ex, () => { loadSteps(ex.steps); setLoadedLocal(null); }));
+  exampleList.appendChild(li);
+}
+
+renderLocalList();
 render();
 
 // ---- Strudel ----
